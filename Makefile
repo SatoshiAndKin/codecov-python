@@ -5,11 +5,11 @@ deploy:
 	python -m twine upload dist/*
 
 reinstall:
-	pip uninstall -y codecov
+	python -m pip uninstall -y codecov
 	python setup.py install
 
 test:
-	py.test tests/test.py --cov=codecov
+	python -m pytest tests/test.py --cov=codecov
 
 format:
 	black . -v -t py38 --check --diff

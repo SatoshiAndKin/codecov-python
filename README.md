@@ -126,3 +126,13 @@ If you're seeing an **HTTP 400 error when uploading reports to S3**, make sure y
 
 ## License
 [![FOSSA Status](https://app.fossa.com/api/projects/git%2Bgithub.com%2Fcodecov%2Fcodecov-python.svg?type=large)](https://app.fossa.com/projects/git%2Bgithub.com%2Fcodecov%2Fcodecov-python?ref=badge_large)
+
+## Fork CI
+
+Pull requests run the existing Python 3.5 through 3.9 matrix in pinned official
+Linux images on the reviewed self-hosted lane. Every version runs `make reinstall`
+and `make test`; the required summary fails unless the whole matrix passes.
+Coverage XML reports are retained as workflow artifacts.
+
+Coverage publication runs only on pushes to `master` with a configured
+`CODECOV_TOKEN` repository secret. Pull request validation needs no upload token.

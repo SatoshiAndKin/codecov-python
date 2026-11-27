@@ -1,0 +1,102 @@
+name: Reviewed Linux Python package tests
+
+on:
+  workflow_call:
+    secrets:
+      CODECOV_TOKEN:
+        required: false
+
+permissions: {}
+
+jobs:
+  test:
+    name: Native tests (${{ matrix.python }})
+    if: github.repository == 'SatoshiAndKin/codecov-python'
+    runs-on:
+      group: ski-ci-public-linux
+      labels: ski-kvm-public-pr
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - python: "3.5"
+            image: python@sha256:42a37d6b8c00b186bdfb2b620fa8023eb775b3eb3a768fd3c2e421964eee9665 # 3.5.10-buster
+          - python: "3.6"
+            image: python@sha256:56ba32a1c5aa030914cc957f1c9fe58d9d462bdf89a1e5f2b4dbdda68085327e # 3.6.15-buster
+          - python: "3.7"
+            image: python@sha256:f36f6fe9ddb2622aab9803944cbe7e2bc50be75d624a081f7895e60e7c6b7f0a # 3.7.17-bullseye
+          - python: "3.8"
+            image: python@sha256:d411270700143fa2683cc8264d9fa5d3279fd3b6afff62ae81ea2f9d070e390c # 3.8.20-bookworm
+          - python: "3.9"
+            image: python@sha256:ff12c273af1e1814efcd8dfdefe16a70a4d901afe94dce721ffed8a34176f285 # 3.9.25-bookworm
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - name: Run the original install and test commands
+        id: test
+        shell: bash
+        env:
+          PYTHON_IMAGE: ${{ matrix.image }}
+          PYTHON_VERSION: ${{ matrix.python }}
+          CODECOV_TEST_EXPECTED_COMMIT: ${{ github.event.pull_request.head.sha || github.sha }}
+          CODECOV_TOKEN: ${{ github.event_name == 'push' && github.ref == 'refs/heads/master' && secrets.CODECOV_TOKEN || '' }}
+        run: |
+          report_dir=$(mktemp -d "$RUNNER_TEMP/codecov-report.XXXXXX")
+          echo "report_dir=$report_dir" >> "$GITHUB_OUTPUT"
+          publish=false
+          if [[ "$GITHUB_EVENT_NAME" == push && "$GITHUB_REF" == refs/heads/master && -n "$CODECOV_TOKEN" ]]; then
+            publish=true
+          fi
+          docker run --rm --platform linux/amd64 \
+            --user "$(id -u):$(id -g)" --cap-drop ALL \
+            --security-opt no-new-privileges --read-only \
+            --tmpfs /tmp:rw,exec,nosuid,nodev \
+            --mount "type=bind,src=$GITHUB_WORKSPACE,dst=/source,readonly" \
+            --mount "type=bind,src=$report_dir,dst=/reports" \
+            -e HOME=/tmp -e PIP_CACHE_DIR=/tmp/pip-cache \
+            -e CI -e GITHUB_ACTION -e GITHUB_SHA -e GITHUB_RUN_ID \
+            -e GITHUB_REPOSITORY -e GITHUB_REF -e GITHUB_HEAD_REF \
+            -e PYTHON_VERSION -e CODECOV_TEST_EXPECTED_COMMIT -e CODECOV_TOKEN \
+            -e "PUBLISH_COVERAGE=$publish" \
+            "$PYTHON_IMAGE" bash -euo pipefail -c '
+              mkdir /tmp/project
+              cp -R /source/. /tmp/project/
+              cd /tmp/project
+              test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+              [[ "$(python --version 2>&1)" == "Python $PYTHON_VERSION."* ]]
+              python -m venv /tmp/venv
+              export PATH="/tmp/venv/bin:$PATH"
+              python --version
+              python -m pip install --upgrade pip
+              python -m pip install -r tests/requirements.txt
+              make reinstall
+              make test
+              python -m coverage xml -o /reports/coverage.xml
+              if [[ "$PUBLISH_COVERAGE" == true ]]; then
+                codecov --file /reports/coverage.xml
+              fi
+            '
+      - name: Preserve the native coverage report
+        if: ${{ always() && steps.test.outputs.report_dir != '' }}
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        with:
+          name: python-${{ matrix.python }}-coverage
+          path: ${{ steps.test.outputs.report_dir }}/coverage.xml
+
+  gate:
+    name: Required Python tests
+    if: ${{ !cancelled() }}
+    needs: test
+    runs-on:
+      group: ski-ci-public-linux
+      labels: ski-kvm-public-pr
+    steps:
+      - name: Require every fixed matrix version to pass
+        shell: bash
+        env:
+          RESULT: ${{ needs.test.result }}
+        run: test "$RESULT" = success
