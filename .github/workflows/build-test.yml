@@ -17,6 +17,6 @@ jobs:
   build:
     permissions:
       contents: read
-    uses: SatoshiAndKin/codecov-python/.github/workflows/build-test-reviewed-linux.yml@f78396a06eb1254d5db07bd72aa836105b98532a
+    uses: SatoshiAndKin/codecov-python/.github/workflows/build-test-reviewed-linux.yml@e77d451935a8e73633f7a7a13931e02a4c1e4730
     secrets:
       CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
