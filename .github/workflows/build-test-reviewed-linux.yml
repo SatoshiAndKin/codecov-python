@@ -42,6 +42,7 @@ jobs:
         env:
           PYTHON_IMAGE: ${{ matrix.image }}
           PYTHON_VERSION: ${{ matrix.python }}
+          CODECOV_TEST_EXPECTED_COMMIT: ${{ github.event.pull_request.head.sha || github.sha }}
           CODECOV_TOKEN: ${{ github.event_name == 'push' && github.ref == 'refs/heads/master' && secrets.CODECOV_TOKEN || '' }}
         run: |
           report_dir=$(mktemp -d "$RUNNER_TEMP/codecov-report.XXXXXX")
@@ -50,7 +51,18 @@ jobs:
           if [[ "$GITHUB_EVENT_NAME" == push && "$GITHUB_REF" == refs/heads/master && -n "$CODECOV_TOKEN" ]]; then
             publish=true
           fi
-          docker run --rm --platform linux/amd64             --user "$(id -u):$(id -g)" --cap-drop ALL             --security-opt no-new-privileges --read-only             --tmpfs /tmp:rw,exec,nosuid,nodev             --mount "type=bind,src=$GITHUB_WORKSPACE,dst=/source,readonly"             --mount "type=bind,src=$report_dir,dst=/reports"             -e HOME=/tmp -e PIP_CACHE_DIR=/tmp/pip-cache             -e CI -e GITHUB_ACTION -e GITHUB_SHA -e GITHUB_RUN_ID             -e GITHUB_REPOSITORY -e GITHUB_REF -e GITHUB_HEAD_REF             -e PYTHON_VERSION -e CODECOV_TOKEN -e "PUBLISH_COVERAGE=$publish"             "$PYTHON_IMAGE" bash -euo pipefail -c '
+          docker run --rm --platform linux/amd64 \
+            --user "$(id -u):$(id -g)" --cap-drop ALL \
+            --security-opt no-new-privileges --read-only \
+            --tmpfs /tmp:rw,exec,nosuid,nodev \
+            --mount "type=bind,src=$GITHUB_WORKSPACE,dst=/source,readonly" \
+            --mount "type=bind,src=$report_dir,dst=/reports" \
+            -e HOME=/tmp -e PIP_CACHE_DIR=/tmp/pip-cache \
+            -e CI -e GITHUB_ACTION -e GITHUB_SHA -e GITHUB_RUN_ID \
+            -e GITHUB_REPOSITORY -e GITHUB_REF -e GITHUB_HEAD_REF \
+            -e PYTHON_VERSION -e CODECOV_TEST_EXPECTED_COMMIT -e CODECOV_TOKEN \
+            -e "PUBLISH_COVERAGE=$publish" \
+            "$PYTHON_IMAGE" bash -euo pipefail -c '
               mkdir /tmp/project
               cp -R /source/. /tmp/project/
               cd /tmp/project

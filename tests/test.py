@@ -860,20 +860,66 @@ class TestUploader(unittest.TestCase):
         self.assertEqual(res["codecov"].token, "token")
         self.assertEqual(res["codecov"].name, "name")
 
+    @data("push", "plain-pr", "merge-pr", "explicit-commit")
+    def test_ci_github_cases(self, case):
+        merge_sha = "a" * 40
+        head_sha = "b" * 40
+        base_sha = "c" * 40
+        is_pr = case != "push"
+        message = (
+            "Merge {} into {}".format(head_sha, base_sha)
+            if case in ("merge-pr", "explicit-commit")
+            else "A normal commit message"
+        )
+        fixture = dict(
+            HOME="/",
+            CODECOV_TOKEN="token",
+            CODECOV_NAME="name",
+            GITHUB_ACTION="fixture-test",
+            GITHUB_SHA=merge_sha,
+            GITHUB_RUN_ID="1234",
+            GITHUB_REPOSITORY="owner/repo",
+            GITHUB_REF="refs/pull/7/merge" if is_pr else "refs/heads/master",
+            GITHUB_HEAD_REF="feature" if is_pr else "",
+        )
+        original_command = codecov.try_to_run
+
+        def controlled_command(command, *args, **kwargs):
+            if command == ["git", "log", "-1", "--pretty=%B"]:
+                return message
+            return original_command(command, *args, **kwargs)
+
+        arguments = {"commit": "d" * 40} if case == "explicit-commit" else {}
+        expected_commit = (
+            "d" * 40 if case == "explicit-commit"
+            else head_sha if case == "merge-pr"
+            else merge_sha
+        )
+        with patch.dict(os.environ, fixture):
+            with patch("codecov.try_to_run", side_effect=controlled_command):
+                self.fake_report()
+                res = self.run_cli(**arguments)
+        self.assertEqual(res["query"]["service"], "github-actions")
+        self.assertEqual(res["query"]["commit"], expected_commit)
+        self.assertEqual(res["query"]["build"], fixture["GITHUB_RUN_ID"])
+        self.assertEqual(res["query"]["slug"], fixture["GITHUB_REPOSITORY"])
+        self.assertEqual(res["query"]["pr"], "7" if is_pr else "")
+        self.assertEqual(res["query"]["branch"], "feature" if is_pr else "master")
+        self.assertEqual(res["codecov"].token, "token")
+        self.assertEqual(res["codecov"].name, "name")
+
     @unittest.skipUnless(
         os.getenv("CI") == "true" and os.getenv("GITHUB_ACTION"),
         "Skip GitHub Actions CI test",
     )
     def test_ci_github(self):
-        self.set_env(
-            HOME="/",
-            CODECOV_TOKEN="token",
-            CODECOV_NAME="name",
-        )
+        self.set_env(HOME="/", CODECOV_TOKEN="token", CODECOV_NAME="name")
         self.fake_report()
         res = self.run_cli()
+        # CI supplies the PR head independently of the client's merge-message parser.
+        expected_commit = os.getenv("CODECOV_TEST_EXPECTED_COMMIT") or os.getenv("GITHUB_SHA")
         self.assertEqual(res["query"]["service"], "github-actions")
-        self.assertEqual(res["query"]["commit"], os.getenv("GITHUB_SHA"))
+        self.assertEqual(res["query"]["commit"], expected_commit)
         self.assertEqual(res["query"]["build"], os.getenv("GITHUB_RUN_ID"))
         self.assertEqual(res["query"]["slug"], os.getenv("GITHUB_REPOSITORY"))
         self.assertEqual(res["codecov"].token, "token")
